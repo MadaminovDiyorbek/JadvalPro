@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="uz">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JadvalPro - Universitet Dars Jadvali Generatoru</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="app">
+      <!-- Sidebar Navigation -->
+      <aside class="sidebar">
+        <div class="logo">
+          <div class="logo-icon">J</div>
+          <span>JadvalPro</span>
+        </div>
+        <nav class="nav">
+          <button class="nav-item active" data-tab="dashboard">
+            <span class="icon">📊</span>
+            <span>Dashboard</span>
+          </button>
+          <button class="nav-item" data-tab="data-entry">
+            <span class="icon">📝</span>
+            <span>Ma'lumotlar kiritish</span>
+          </button>
+          <button class="nav-item" data-tab="view-data">
+            <span class="icon">👁️</span>
+            <span>Ma'lumotlarni ko'rish</span>
+          </button>
+          <button class="nav-item" data-tab="generate">
+            <span class="icon">⚡</span>
+            <span>Jadval yaratish</span>
+          </button>
+          <button class="nav-item" data-tab="schedules">
+            <span class="icon">📅</span>
+            <span>Jadvallar</span>
+          </button>
+          <button class="nav-item" data-tab="heatmap">
+            <span class="icon">🔥</span>
+            <span>Bandlik tahlili</span>
+          </button>
+          <button class="nav-item" data-tab="personal-schedules">
+            <span class="icon">👨‍🏫</span>
+            <span>Shaxsiy jadvallar</span>
+          </button>
+        </nav>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main class="content">
+        <header class="header">
+          <h1 id="page-title">Dashboard</h1>
+          <div class="user-profile">
+            <div class="university-name" id="display-uni-name">Universitet nomi</div>
+            <select id="lang-select" class="lang-select" onchange="changeLang(this.value)" style="background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 5px; cursor: pointer; padding: 2px 5px; margin-right: 1rem; font-family: 'Outfit', sans-serif;">
+              <option value="uz">UZ</option>
+              <option value="ru">RU</option>
+              <option value="en">EN</option>
+            </select>
+            <div class="avatar">👤</div>
+          </div>
+        </header>
+
+        <section id="tab-content">
+          <!-- Dynamically injected content -->
+        </section>
+      </main>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
