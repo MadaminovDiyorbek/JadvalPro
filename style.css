@@ -399,3 +399,213 @@ h1, h2, h3, .logo {
   outline: 2px dashed var(--accent-color);
   outline-offset: -4px;
 }
+
+/* ============================================
+   RESPONSIVE — MOBIL VA PLANSHET
+   ============================================ */
+
+/* Hamburger tugmasi — katta ekranda yashirin */
+.hamburger-btn {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 1.3rem;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+.hamburger-btn:hover {
+  background: var(--border-color);
+}
+
+/* Overlay — sidebar ochiq bo'lganda qorong'i fon */
+#sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 99;
+  backdrop-filter: blur(2px);
+}
+#sidebar-overlay.active {
+  display: block;
+}
+
+/* ---- PLANSHET: 768px — 1024px ---- */
+@media (max-width: 1024px) {
+  :root {
+    --sidebar-width: 220px;
+  }
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+  .university-name {
+    display: none;
+  }
+}
+
+/* ---- MOBIL: 768px va kichik ---- */
+@media (max-width: 768px) {
+  body {
+    overflow: auto;
+  }
+
+  #app {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  /* Sidebar — chiqib keluvchi drawer */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: -280px;
+    width: 260px;
+    height: 100vh;
+    z-index: 100;
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: none;
+    overflow-y: auto;
+  }
+  .sidebar.open {
+    left: 0;
+    box-shadow: 4px 0 30px rgba(0,0,0,0.5);
+  }
+
+  /* Content to'liq kenglikda */
+  .content {
+    max-width: 100vw;
+    width: 100%;
+  }
+
+  /* Header */
+  .header {
+    padding: 0 1rem;
+    height: 60px;
+  }
+  .header h1 {
+    font-size: 1.1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+  }
+
+  /* Hamburger ko'rsatish */
+  .hamburger-btn {
+    display: flex;
+  }
+
+  /* Uni nomi va avatar kichik ekranda yashirin */
+  .university-name {
+    display: none;
+  }
+  .avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 0.9rem;
+  }
+
+  /* Content padding */
+  #tab-content {
+    padding: 1rem;
+  }
+
+  /* Kartalar */
+  .glass-card {
+    padding: 16px;
+    border-radius: 16px;
+  }
+  .glass-card:hover {
+    transform: none;
+  }
+
+  /* Stats grid — bir ustun */
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 1rem;
+  }
+
+  /* Form grid — bir ustun */
+  .grid-2 {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  /* Wizard nav — scroll */
+  .wizard-nav {
+    gap: 6px;
+  }
+  .wizard-step {
+    font-size: 0.75rem;
+    padding: 6px 10px;
+  }
+
+  /* Jadval — gorizontal scroll */
+  .schedule-table {
+    font-size: 0.78rem;
+    min-width: 500px;
+  }
+  .schedule-table th,
+  .schedule-table td {
+    padding: 8px 6px;
+  }
+
+  /* List items */
+  .list-container {
+    max-height: 250px;
+  }
+
+  /* Btn tugmalar */
+  .btn-small {
+    width: 32px;
+    height: 32px;
+    font-size: 0.85rem;
+  }
+
+  /* Form inline — column */
+  .form-group-inline {
+    flex-direction: column;
+  }
+  .form-group-inline input,
+  .form-group-inline select {
+    width: 100%;
+  }
+
+  /* Input va select full-width */
+  .input-field, .select-field {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Heatmap table */
+  #heatmap-container {
+    overflow-x: auto;
+  }
+}
+
+/* ---- KICHIK TELEFON: 480px va kichik ---- */
+@media (max-width: 480px) {
+  .stats-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 0.7rem;
+  }
+  .header h1 {
+    font-size: 0.95rem;
+    max-width: 120px;
+  }
+  #tab-content {
+    padding: 0.75rem;
+  }
+  .glass-card {
+    padding: 12px;
+    border-radius: 12px;
+  }
+}

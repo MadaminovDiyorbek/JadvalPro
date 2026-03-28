@@ -49,10 +49,16 @@
         </nav>
       </aside>
 
+      <!-- Mobile Overlay -->
+      <div id="sidebar-overlay" onclick="closeSidebar()"></div>
+
       <!-- Main Content Area -->
       <main class="content">
         <header class="header">
-          <h1 id="page-title">Dashboard</h1>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <button id="hamburger" onclick="toggleSidebar()" class="hamburger-btn">☰</button>
+            <h1 id="page-title">Dashboard</h1>
+          </div>
           <div class="user-profile">
             <div class="university-name" id="display-uni-name">Universitet nomi</div>
             <select id="lang-select" class="lang-select" onchange="changeLang(this.value)" style="background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 5px; cursor: pointer; padding: 2px 5px; margin-right: 1rem; font-family: 'Outfit', sans-serif;">

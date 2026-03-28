@@ -1276,3 +1276,23 @@ if (document.getElementById('lang-select')) {
 
 translateUI();
 switchTab('dashboard');
+
+// --- Mobile Sidebar Toggle ---
+window.toggleSidebar = () => {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  sidebar.classList.toggle('open');
+  overlay.classList.toggle('active');
+};
+
+window.closeSidebar = () => {
+  document.querySelector('.sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('active');
+};
+
+// Mobildan nav-item bosilganda sidebar avtomatik yopilsin
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    if (window.innerWidth <= 768) closeSidebar();
+  });
+});
