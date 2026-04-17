@@ -93,7 +93,8 @@ const translations = {
     storage_full: "Xotira to'lib qoldi. Eski jadvallarni o'chirib qayta urinib ko'ring.",
     drag_diff_sched: "Faqat bitta jadval ichida ko'chirish mumkin",
     conflict_detected: "Ziddiyat aniqlandi! Ko'chirish bekor qilindi.",
-    room_type_mismatch: "Xona turi fan turiga mos emas"
+    room_type_mismatch: "Xona turi fan turiga mos emas",
+    gen_fallback_subjects: "Ayrim guruhlar uchun fakultet bo‘yicha fan topilmadi — barcha fanlar qo‘llanildi."
   },
   ru: {
     dashboard: "Дашборд",
@@ -184,7 +185,8 @@ const translations = {
     storage_full: "Хранилище заполнено. Удалите старые расписания и попробуйте снова.",
     drag_diff_sched: "Можно перемещать только внутри одного расписания",
     conflict_detected: "Обнаружен конфликт! Перемещение отменено.",
-    room_type_mismatch: "Тип аудитории не соответствует типу занятия"
+    room_type_mismatch: "Тип аудитории не соответствует типу занятия",
+    gen_fallback_subjects: "Для части групп не найдены предметы факультета — использованы все предметы."
   },
   en: {
     dashboard: "Dashboard",
@@ -275,7 +277,8 @@ const translations = {
     storage_full: "Storage is full. Delete old schedules and try again.",
     drag_diff_sched: "Can only move lessons within the same schedule",
     conflict_detected: "Conflict detected! Move cancelled.",
-    room_type_mismatch: "Room type does not match lesson type"
+    room_type_mismatch: "Room type does not match lesson type",
+    gen_fallback_subjects: "No faculty-matched subjects for some groups — all subjects were used."
   }
 };
 
@@ -326,8 +329,49 @@ const ROOM_TYPE_MAP = {
   lab: ['lab']
 };
 
-function lessonTypeKey(typeKey) {
-  return t(typeKey);
+/** Dars turlari — jadvalda qisqa belgi (tilga bog'liq emas) */
+const SESSION_TYPE_MARK = { lecture: 'L', practice: 'P', seminar: 'S', lab: 'Lab' };
+
+const TYPE_KEYS_ORDER = ['lecture', 'practice', 'seminar', 'lab'];
+
+/** Guruh fakultetiga tegishli kafedralar idlari */
+function departmentIdsForFaculty(facultyId) {
+  return state.departments
+    .filter(d => String(d.facultyId) === String(facultyId))
+    .map(d => d.id);
+}
+
+/** Guruh uchun mos fanlar (kafedra orqali fakultetga bog'langan) */
+function subjectsForGroup(group) {
+  const deptIds = departmentIdsForFaculty(group.facultyId);
+  if (!deptIds.length) return state.subjects;
+  const set = new Set(deptIds.map(id => String(id)));
+  return state.subjects.filter(s => set.has(String(s.departmentId)));
+}
+
+/** Fan bo'yicha o'qituvchilar: avval o'sha kafedra, keyin shu fakultetdagi boshqa kafedralar */
+function teachersEligibleForSubject(subject) {
+  const sid = subject.departmentId;
+  const sameDept = state.teachers.filter(t => String(t.departmentId) === String(sid));
+  if (sameDept.length) return sameDept;
+  const dep = state.departments.find(d => String(d.id) === String(sid));
+  if (!dep) return state.teachers;
+  const facDeptIds = state.departments
+    .filter(d => String(d.facultyId) === String(dep.facultyId))
+    .map(d => d.id);
+  const fromFac = state.teachers.filter(t =>
+    facDeptIds.some(id => String(id) === String(t.departmentId))
+  );
+  return fromFac.length ? fromFac : state.teachers;
+}
+
+function orderedTypeKeysForSubject(subject) {
+  const keys = subject.typeKeys && subject.typeKeys.length ? subject.typeKeys : ['lecture'];
+  return TYPE_KEYS_ORDER.filter(k => keys.includes(k));
+}
+
+function sortTimeSlotsChronological(slots) {
+  return [...slots].sort((a, b) => String(a.start).localeCompare(String(b.start)));
 }
 
 // Toast notification — alert() va confirm() o'rniga
@@ -936,17 +980,15 @@ window.runScheduleAlgorithm = () => {
   setTimeout(() => {
     const dayKeys = ['day_1', 'day_2', 'day_3', 'day_4', 'day_5', 'day_6'];
     const days = dayKeys.slice(0, daysCount).map(k => t(k));
+    const sortedSlots = sortTimeSlotsChronological(state.timeSlots);
 
     let scheduleData = [];
-    // Busy maps: teacherId_daySlotKey, roomId_daySlotKey, groupId_daySlotKey
     const teacherBusy = {};
-    const roomBusy    = {};
-    const groupBusy   = {};
+    const roomBusy = {};
+    const groupBusy = {};
+    /** Guruh–fan bo'yicha necha para qo'yilgani (adolatli tarqatish) */
+    const groupSubjectLoad = {};
 
-    const totalSteps = groups.length * days.length * state.timeSlots.length;
-    let step = 0;
-
-    // Shuffle helper for variety
     const shuffle = (arr) => {
       const a = [...arr];
       for (let i = a.length - 1; i > 0; i--) {
@@ -956,89 +998,120 @@ window.runScheduleAlgorithm = () => {
       return a;
     };
 
+    let usedFallbackSubjects = false;
+    const totalSteps = groups.length * days.length * sortedSlots.length;
+    let step = 0;
     const progressEl = document.getElementById('gen-progress');
 
+    const tryPlaceLesson = (group, day, slot, subject, typeKey) => {
+      const key = `${day}_${slot.id}`;
+      const mark = SESSION_TYPE_MARK[typeKey] || typeKey.charAt(0).toUpperCase();
+      const sessionLabel = `[${mark}] ${subject.name}`;
+      const compatibleRoomTypes = ROOM_TYPE_MAP[typeKey] || [typeKey];
+
+      const roomOk = (r, minCap) =>
+        !roomBusy[`${r.id}_${key}`] &&
+        parseInt(r.capacity, 10) >= minCap &&
+        compatibleRoomTypes.includes(r.typeKey || 'lecture');
+
+      const pool = teachersEligibleForSubject(subject);
+
+      if (subject.isSplit && (typeKey === 'practice' || typeKey === 'lab' || typeKey === 'seminar')) {
+        const halfStudents = Math.ceil(parseInt(group.students, 10) / 2);
+        const splitRooms = state.rooms.filter(r => roomOk(r, halfStudents));
+        const freeTeachers = pool.filter(t => !teacherBusy[`${t.id}_${key}`]);
+
+        if (freeTeachers.length >= 2 && splitRooms.length >= 2) {
+          const [t1, t2] = shuffle(freeTeachers).slice(0, 2);
+          const [r1, r2] = shuffle(splitRooms).slice(0, 2);
+          scheduleData.push({
+            day,
+            slot: slot.name,
+            time: `${slot.start}–${slot.end}`,
+            group: group.name,
+            subject: `${sessionLabel} (${t('split')})`,
+            teacher: `${t1.name} / ${t2.name}`,
+            room: `${r1.name} / ${r2.name}`,
+            typeKey
+          });
+          teacherBusy[`${t1.id}_${key}`] = true;
+          teacherBusy[`${t2.id}_${key}`] = true;
+          roomBusy[`${r1.id}_${key}`] = true;
+          roomBusy[`${r2.id}_${key}`] = true;
+          groupBusy[`${group.id}_${key}`] = true;
+          return true;
+        }
+        /* Split shartlari bajarilmasa — bitta xona / bitta o'qituvchi (to'liq guruh) */
+      }
+
+      const availableRooms = state.rooms.filter(r =>
+        roomOk(r, parseInt(group.students, 10))
+      );
+      const freeTeachers = pool.filter(t => !teacherBusy[`${t.id}_${key}`]);
+
+      if (freeTeachers.length && availableRooms.length) {
+        const tea = shuffle(freeTeachers)[0];
+        const roo = shuffle(availableRooms)[0];
+        scheduleData.push({
+          day,
+          slot: slot.name,
+          time: `${slot.start}–${slot.end}`,
+          group: group.name,
+          subject: sessionLabel,
+          teacher: tea.name,
+          room: roo.name,
+          typeKey
+        });
+        teacherBusy[`${tea.id}_${key}`] = true;
+        roomBusy[`${roo.id}_${key}`] = true;
+        groupBusy[`${group.id}_${key}`] = true;
+        return true;
+      }
+      return false;
+    };
+
     for (const group of groups) {
-      const shuffledDays = shuffle(days);
-      for (const day of shuffledDays) {
-        const shuffledSlots = shuffle(state.timeSlots);
-        for (const slot of shuffledSlots) {
+      let pool = subjectsForGroup(group);
+      if (!pool.length) {
+        pool = state.subjects;
+        usedFallbackSubjects = true;
+      }
+
+      for (const day of days) {
+        for (const slot of sortedSlots) {
           step++;
           if (progressEl) progressEl.style.width = `${Math.round((step / totalSteps) * 100)}%`;
 
-          const key = `${day}_${slot.id}`;
-          if (groupBusy[`${group.id}_${key}`]) continue;
+          const slotKey = `${day}_${slot.id}`;
+          if (groupBusy[`${group.id}_${slotKey}`]) continue;
 
-          // Pick a random subject (shuffle for variety)
-          const shuffledSubjects = shuffle(state.subjects);
+          const loadKey = (sid) => `${group.id}_${sid}`;
+          const orderedSubjects = shuffle(pool).sort((a, b) => {
+            const ca = groupSubjectLoad[loadKey(a.id)] || 0;
+            const cb = groupSubjectLoad[loadKey(b.id)] || 0;
+            if (ca !== cb) return ca - cb;
+            return a.id - b.id;
+          });
+
           let placed = false;
 
-          for (const subject of shuffledSubjects) {
+          for (const subject of orderedSubjects) {
             if (placed) break;
-
-            // Pick a session type key (constant — not translated)
-            const availableTypeKeys = subject.typeKeys && subject.typeKeys.length ? subject.typeKeys : ['lecture'];
-            const typeKey = availableTypeKeys[Math.floor(Math.random() * availableTypeKeys.length)];
-            const sessionLabel = `[${t(typeKey)[0]}] ${subject.name}`;
-
-            // Find compatible room (type match + capacity + not busy)
-            const compatibleRoomTypes = ROOM_TYPE_MAP[typeKey] || [typeKey];
-            const availableRooms = state.rooms.filter(r =>
-              !roomBusy[`${r.id}_${key}`] &&
-              parseInt(r.capacity) >= parseInt(group.students) &&
-              compatibleRoomTypes.includes(r.typeKey || 'lecture')
-            );
-
-            if (subject.isSplit && (typeKey === 'practice' || typeKey === 'lab' || typeKey === 'seminar')) {
-              // Split group — need 2 teachers and 2 rooms (half capacity)
-              const halfStudents = Math.ceil(parseInt(group.students) / 2);
-              const splitRooms = state.rooms.filter(r =>
-                !roomBusy[`${r.id}_${key}`] &&
-                parseInt(r.capacity) >= halfStudents &&
-                compatibleRoomTypes.includes(r.typeKey || 'lecture')
-              );
-              const freeTeachers = state.teachers.filter(t_obj => !teacherBusy[`${t_obj.id}_${key}`]);
-
-              if (freeTeachers.length >= 2 && splitRooms.length >= 2) {
-                const [t1, t2] = shuffle(freeTeachers);
-                const [r1, r2] = shuffle(splitRooms);
-                scheduleData.push({
-                  day, slot: slot.name, time: `${slot.start}–${slot.end}`,
-                  group: group.name,
-                  subject: `${sessionLabel} (${t('split')})`,
-                  teacher: `${t1.name} / ${t2.name}`,
-                  room: `${r1.name} / ${r2.name}`,
-                  typeKey
-                });
-                teacherBusy[`${t1.id}_${key}`] = true;
-                teacherBusy[`${t2.id}_${key}`] = true;
-                roomBusy[`${r1.id}_${key}`] = true;
-                roomBusy[`${r2.id}_${key}`] = true;
-                groupBusy[`${group.id}_${key}`] = true;
+            const typeKeys = orderedTypeKeysForSubject(subject);
+            for (const typeKey of typeKeys) {
+              if (tryPlaceLesson(group, day, slot, subject, typeKey)) {
+                groupSubjectLoad[loadKey(subject.id)] = (groupSubjectLoad[loadKey(subject.id)] || 0) + 1;
                 placed = true;
-              }
-            } else {
-              const freeTeachers = state.teachers.filter(t_obj => !teacherBusy[`${t_obj.id}_${key}`]);
-              if (freeTeachers.length && availableRooms.length) {
-                const tea = shuffle(freeTeachers)[0];
-                const roo = shuffle(availableRooms)[0];
-                scheduleData.push({
-                  day, slot: slot.name, time: `${slot.start}–${slot.end}`,
-                  group: group.name,
-                  subject: sessionLabel,
-                  teacher: tea.name,
-                  room: roo.name,
-                  typeKey
-                });
-                teacherBusy[`${tea.id}_${key}`] = true;
-                roomBusy[`${roo.id}_${key}`] = true;
-                groupBusy[`${group.id}_${key}`] = true;
-                placed = true;
+                break;
               }
             }
           }
         }
       }
+    }
+
+    if (usedFallbackSubjects) {
+      showToast(t('gen_fallback_subjects'), 'warning', 4000);
     }
 
     state.schedules.push({
