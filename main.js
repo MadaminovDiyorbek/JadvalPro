@@ -94,7 +94,8 @@ const translations = {
     drag_diff_sched: "Faqat bitta jadval ichida ko'chirish mumkin",
     conflict_detected: "Ziddiyat aniqlandi! Ko'chirish bekor qilindi.",
     room_type_mismatch: "Xona turi fan turiga mos emas",
-    gen_fallback_subjects: "Ayrim guruhlar uchun fakultet bo‘yicha fan topilmadi — barcha fanlar qo‘llanildi."
+    gen_fallback_subjects: "Ayrim guruhlar uchun fakultet bo‘yicha fan topilmadi — barcha fanlar qo‘llanildi.",
+    sched_unknown_faculty: "Boshqa / aniqlanmagan guruhlar"
   },
   ru: {
     dashboard: "Дашборд",
@@ -186,7 +187,8 @@ const translations = {
     drag_diff_sched: "Можно перемещать только внутри одного расписания",
     conflict_detected: "Обнаружен конфликт! Перемещение отменено.",
     room_type_mismatch: "Тип аудитории не соответствует типу занятия",
-    gen_fallback_subjects: "Для части групп не найдены предметы факультета — использованы все предметы."
+    gen_fallback_subjects: "Для части групп не найдены предметы факультета — использованы все предметы.",
+    sched_unknown_faculty: "Прочие / неизвестные группы"
   },
   en: {
     dashboard: "Dashboard",
@@ -278,7 +280,8 @@ const translations = {
     drag_diff_sched: "Can only move lessons within the same schedule",
     conflict_detected: "Conflict detected! Move cancelled.",
     room_type_mismatch: "Room type does not match lesson type",
-    gen_fallback_subjects: "No faculty-matched subjects for some groups — all subjects were used."
+    gen_fallback_subjects: "No faculty-matched subjects for some groups — all subjects were used.",
+    sched_unknown_faculty: "Other / unidentified groups"
   }
 };
 
@@ -372,6 +375,92 @@ function orderedTypeKeysForSubject(subject) {
 
 function sortTimeSlotsChronological(slots) {
   return [...slots].sort((a, b) => String(a.start).localeCompare(String(b.start)));
+}
+
+/** Til tartibi: O'zbek → Rus → Ingliz */
+const LANG_ORDER = { uz: 0, ru: 1, en: 2 };
+
+function langSortOrder(lang) {
+  return LANG_ORDER[lang] ?? 50;
+}
+
+/** Jadvaldagi guruh nomlari: kurs (1–4), keyin til */
+function sortGroupNamesForDisplay(names) {
+  return [...names].sort((a, b) => {
+    const ga = state.groups.find(g => g.name === a);
+    const gb = state.groups.find(g => g.name === b);
+    const ca = ga ? parseInt(ga.course, 10) : 99;
+    const cb = gb ? parseInt(gb.course, 10) : 99;
+    if (ca !== cb) return ca - cb;
+    const la = ga ? langSortOrder(ga.lang) : 99;
+    const lb = gb ? langSortOrder(gb.lang) : 99;
+    if (la !== lb) return la - lb;
+    return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+  });
+}
+
+/** Fakultetlar: nom bo'yicha, "noma'lum" oxirida */
+function scheduleFacultySections(groupNames) {
+  const ids = new Set();
+  for (const n of groupNames) {
+    const g = state.groups.find(x => x.name === n);
+    ids.add(g ? String(g.facultyId) : '_unknown');
+  }
+  const ordered = [...ids].sort((a, b) => {
+    if (a === '_unknown') return 1;
+    if (b === '_unknown') return -1;
+    const fa = state.faculties.find(f => String(f.id) === a);
+    const fb = state.faculties.find(f => String(f.id) === b);
+    return (fa?.name || '').localeCompare(fb?.name || '', undefined, { sensitivity: 'base' });
+  });
+  return ordered.map(fid => {
+    const namesInFac = groupNames.filter(n => {
+      const g = state.groups.find(x => x.name === n);
+      if (fid === '_unknown') return !g;
+      if (!g) return false;
+      return String(g.facultyId) === fid;
+    });
+    const facultyName =
+      fid === '_unknown'
+        ? t('sched_unknown_faculty')
+        : escapeHtml(state.faculties.find(f => String(f.id) === fid)?.name || t('faculty'));
+    return {
+      facultyKey: fid,
+      facultyName,
+      groupNames: sortGroupNamesForDisplay(namesInFac)
+    };
+  });
+}
+
+/** Eksport uchun: jadval satrlari — fakultet → kurs → til tartibida */
+function getScheduleDataOrdered(scheduleData) {
+  const grouped = scheduleData.reduce((acc, curr) => {
+    if (!acc[curr.group]) acc[curr.group] = [];
+    acc[curr.group].push(curr);
+    return acc;
+  }, {});
+  const sections = scheduleFacultySections(Object.keys(grouped));
+  const ordered = [];
+  for (const sec of sections) {
+    for (const gname of sec.groupNames) {
+      const rows = grouped[gname];
+      if (rows) ordered.push(...rows);
+    }
+  }
+  return ordered;
+}
+
+function groupMetaForExport(groupName) {
+  const g = state.groups.find((x) => x.name === groupName);
+  if (!g) {
+    return { faculty: t('sched_unknown_faculty'), course: '—', lang: '—' };
+  }
+  const fac = state.faculties.find((f) => String(f.id) === String(g.facultyId));
+  return {
+    faculty: fac?.name || '—',
+    course: t('course_' + g.course),
+    lang: t('lang_' + g.lang)
+  };
 }
 
 // Toast notification — alert() va confirm() o'rniga
@@ -598,13 +687,21 @@ const views = {
                 <button onclick="removeSchedule(${idx})" data-remove-idx="${idx}" class="btn-delete" title="${t('delete')}">🗑️</button>
               </div>
             </div>
-            ${Object.keys(groupedByGroup).map(groupName => {
-              let lastDay = '';
-              return `
-                <div style="margin-bottom: 2rem;">
-                  <h5 style="background: rgba(255,255,255,0.04); padding: 8px 15px; border-radius: 8px; color: var(--accent-color); display: inline-block; margin-bottom: 1rem;">
-                    👥 ${t('group')}: ${groupName}
+            ${scheduleFacultySections(Object.keys(groupedByGroup)).map((section) => `
+              <div class="schedule-faculty-block">
+                <div class="schedule-faculty-title">🏛️ ${section.facultyName}</div>
+                ${section.groupNames.map((groupName) => {
+                  let lastDay = '';
+                  const gMeta = state.groups.find((g) => g.name === groupName);
+                  const subLine = gMeta
+                    ? `${t('course_' + gMeta.course)} · ${t('lang_' + gMeta.lang)}`
+                    : '';
+                  return `
+                <div class="schedule-group-block" style="margin-bottom: 2rem;">
+                  <h5 style="background: rgba(255,255,255,0.04); padding: 8px 15px; border-radius: 8px; color: var(--accent-color); display: inline-block; margin-bottom: 0.35rem;">
+                    👥 ${t('group')}: ${escapeHtml(groupName)}
                   </h5>
+                  ${subLine ? `<p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.85rem;">${subLine}</p>` : ''}
                   <div style="overflow-x: auto;">
                     <table class="schedule-table ${s.editing ? 'edit-mode' : ''}">
                       <thead>
@@ -642,7 +739,8 @@ const views = {
                     </table>
                   </div>
                 </div>`;
-            }).join('')}
+                }).join('')}
+              </div>`).join('')}
           </div>`;
         }).join('')}
       </div>
@@ -1509,12 +1607,25 @@ window.exportTeacherSchedule = (format) => {
 // EXPORT (Excel / PDF)
 // ============================================
 window.exportToExcel = (idx) => {
-  const s  = state.schedules[idx];
-  const ws = XLSX.utils.json_to_sheet(s.data.map(d => ({
-    [t('day')]: d.day, [t('slot')]: d.slot, [t('time')]: d.time,
-    [t('group')]: d.group, [t('subject')]: d.subject,
-    [t('teacher')]: d.teacher, [t('room')]: d.room
-  })));
+  const s = state.schedules[idx];
+  const ordered = getScheduleDataOrdered(s.data);
+  const ws = XLSX.utils.json_to_sheet(
+    ordered.map((d) => {
+      const m = groupMetaForExport(d.group);
+      return {
+        [t('faculty')]: m.faculty,
+        [t('course')]: m.course,
+        [t('lang')]: m.lang,
+        [t('group')]: d.group,
+        [t('day')]: d.day,
+        [t('slot')]: d.slot,
+        [t('time')]: d.time,
+        [t('subject')]: d.subject,
+        [t('teacher')]: d.teacher,
+        [t('room')]: d.room
+      };
+    })
+  );
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Jadval');
   const base64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
@@ -1523,16 +1634,39 @@ window.exportToExcel = (idx) => {
 
 window.exportToPDF = (idx) => {
   const { jsPDF } = window.jspdf;
-  const s   = state.schedules[idx];
+  const s = state.schedules[idx];
+  const ordered = getScheduleDataOrdered(s.data);
   const doc = new jsPDF({ orientation: 'landscape' });
   doc.setFontSize(14);
   doc.text(`JadvalPro - ${t('schedules')} #${idx + 1}`, 14, 15);
   doc.autoTable({
     startY: 22,
-    head: [[t('day'), t('slot'), t('time'), t('group'), t('subject'), t('teacher'), t('room')]],
-    body: s.data.map(d => [d.day, d.slot, d.time, d.group, d.subject, d.teacher, d.room]),
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [0, 180, 216] }
+    head: [
+      [
+        t('faculty'),
+        t('course'),
+        t('lang'),
+        t('group'),
+        t('day'),
+        t('slot'),
+        t('time'),
+        t('subject'),
+        t('teacher'),
+        t('room')
+      ]
+    ],
+    body: ordered.map((d) => {
+      const m = groupMetaForExport(d.group);
+      return [m.faculty, m.course, m.lang, d.group, d.day, d.slot, d.time, d.subject, d.teacher, d.room];
+    }),
+    styles: { fontSize: 7 },
+    headStyles: { fillColor: [0, 180, 216] },
+    columnStyles: {
+      0: { cellWidth: 28 },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 22 },
+      3: { cellWidth: 24 }
+    }
   });
   doc.save(`JadvalPro_${s.id}.pdf`);
 };
