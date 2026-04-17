@@ -432,36 +432,65 @@ function scheduleFacultySections(groupNames) {
   });
 }
 
-/** Eksport uchun: jadval satrlari — fakultet → kurs → til tartibida */
-function getScheduleDataOrdered(scheduleData) {
+function dayIndexForSort(dayStr) {
+  const dayKeys = ['day_1', 'day_2', 'day_3', 'day_4', 'day_5', 'day_6'];
+  const idx = dayKeys.findIndex(
+    (k) =>
+      translations.uz[k] === dayStr ||
+      translations.ru[k] === dayStr ||
+      translations.en[k] === dayStr
+  );
+  return idx === -1 ? 99 : idx;
+}
+
+function sortLessonsForGroupExport(lessons) {
+  return [...lessons].sort((a, b) => {
+    const da = dayIndexForSort(a.day);
+    const db = dayIndexForSort(b.day);
+    if (da !== db) return da - db;
+    return String(a.slot).localeCompare(String(b.slot), undefined, { numeric: true });
+  });
+}
+
+function facultyPlainNameForExport(fid) {
+  if (fid === '_unknown') return t('sched_unknown_faculty');
+  return state.faculties.find((f) => String(f.id) === String(fid))?.name || t('faculty');
+}
+
+/**
+ * Veb sahifadagi kabi: fakultet → guruhlar (tartiblangan) → har biri uchun
+ * faqat KUN / PARA / FAN / O'QITUVCHI / XONA; kun birinchi parada.
+ */
+function buildScheduleExportBlocks(scheduleData) {
   const grouped = scheduleData.reduce((acc, curr) => {
     if (!acc[curr.group]) acc[curr.group] = [];
     acc[curr.group].push(curr);
     return acc;
   }, {});
   const sections = scheduleFacultySections(Object.keys(grouped));
-  const ordered = [];
-  for (const sec of sections) {
-    for (const gname of sec.groupNames) {
-      const rows = grouped[gname];
-      if (rows) ordered.push(...rows);
-    }
-  }
-  return ordered;
+  return sections.map((sec) => ({
+    facultyName: facultyPlainNameForExport(sec.facultyKey),
+    groups: sec.groupNames.map((gname) => {
+      const lessons = sortLessonsForGroupExport(grouped[gname]);
+      const gMeta = state.groups.find((g) => g.name === gname);
+      const subTitle = gMeta ? `${t('course_' + gMeta.course)} · ${t('lang_' + gMeta.lang)}` : '';
+      let lastDay = '';
+      const displayRows = lessons.map((d) => {
+        const showDay = d.day !== lastDay;
+        lastDay = d.day;
+        return {
+          dayDisplay: showDay ? d.day : '',
+          slotLine: `${d.slot}\n${d.time}`,
+          subject: d.subject,
+          teacher: d.teacher,
+          room: d.room
+        };
+      });
+      return { groupName: gname, subTitle, displayRows };
+    })
+  }));
 }
 
-function groupMetaForExport(groupName) {
-  const g = state.groups.find((x) => x.name === groupName);
-  if (!g) {
-    return { faculty: t('sched_unknown_faculty'), course: '—', lang: '—' };
-  }
-  const fac = state.faculties.find((f) => String(f.id) === String(g.facultyId));
-  return {
-    faculty: fac?.name || '—',
-    course: t('course_' + g.course),
-    lang: t('lang_' + g.lang)
-  };
-}
 
 // Toast notification — alert() va confirm() o'rniga
 function showToast(message, type = 'success', duration = 3000) {
@@ -1608,24 +1637,40 @@ window.exportTeacherSchedule = (format) => {
 // ============================================
 window.exportToExcel = (idx) => {
   const s = state.schedules[idx];
-  const ordered = getScheduleDataOrdered(s.data);
-  const ws = XLSX.utils.json_to_sheet(
-    ordered.map((d) => {
-      const m = groupMetaForExport(d.group);
-      return {
-        [t('faculty')]: m.faculty,
-        [t('course')]: m.course,
-        [t('lang')]: m.lang,
-        [t('group')]: d.group,
-        [t('day')]: d.day,
-        [t('slot')]: d.slot,
-        [t('time')]: d.time,
-        [t('subject')]: d.subject,
-        [t('teacher')]: d.teacher,
-        [t('room')]: d.room
-      };
-    })
-  );
+  const blocks = buildScheduleExportBlocks(s.data);
+  const aoa = [];
+  const merges = [];
+  let r = 0;
+
+  const mergeRow = (text) => {
+    merges.push({ s: { r, c: 0 }, e: { r, c: 4 } });
+    aoa.push([text]);
+    r++;
+  };
+
+  mergeRow(`${state.university} — JadvalPro · ${t('schedules')} #${idx + 1}`);
+  aoa.push(['', '', '', '', '']);
+  r++;
+
+  for (const block of blocks) {
+    mergeRow(`${t('faculty')}: ${block.facultyName}`);
+    for (const g of block.groups) {
+      mergeRow(`${t('group')}: ${g.groupName}`);
+      mergeRow(g.subTitle || '—');
+      aoa.push([t('day'), t('slot'), t('subject'), t('teacher'), t('room')]);
+      r++;
+      for (const row of g.displayRows) {
+        aoa.push([row.dayDisplay, row.slotLine, row.subject, row.teacher, row.room]);
+        r++;
+      }
+      aoa.push(['', '', '', '', '']);
+      r++;
+    }
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges'] = merges;
+  ws['!cols'] = [{ wch: 14 }, { wch: 18 }, { wch: 36 }, { wch: 24 }, { wch: 10 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Jadval');
   const base64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
@@ -1635,39 +1680,101 @@ window.exportToExcel = (idx) => {
 window.exportToPDF = (idx) => {
   const { jsPDF } = window.jspdf;
   const s = state.schedules[idx];
-  const ordered = getScheduleDataOrdered(s.data);
+  const blocks = buildScheduleExportBlocks(s.data);
   const doc = new jsPDF({ orientation: 'landscape' });
-  doc.setFontSize(14);
-  doc.text(`JadvalPro - ${t('schedules')} #${idx + 1}`, 14, 15);
-  doc.autoTable({
-    startY: 22,
-    head: [
-      [
-        t('faculty'),
-        t('course'),
-        t('lang'),
-        t('group'),
-        t('day'),
-        t('slot'),
-        t('time'),
-        t('subject'),
-        t('teacher'),
-        t('room')
-      ]
-    ],
-    body: ordered.map((d) => {
-      const m = groupMetaForExport(d.group);
-      return [m.faculty, m.course, m.lang, d.group, d.day, d.slot, d.time, d.subject, d.teacher, d.room];
-    }),
-    styles: { fontSize: 7 },
-    headStyles: { fillColor: [0, 180, 216] },
-    columnStyles: {
-      0: { cellWidth: 28 },
-      1: { cellWidth: 22 },
-      2: { cellWidth: 22 },
-      3: { cellWidth: 24 }
+  const margin = 14;
+  let y = 12;
+  const pageH = doc.internal.pageSize.getHeight();
+
+  doc.setFontSize(13);
+  doc.setFont(undefined, 'bold');
+  doc.text(`${state.university}`, margin, y);
+  y += 7;
+  doc.setFontSize(11);
+  doc.text(`JadvalPro · ${t('schedules')} #${idx + 1}`, margin, y);
+  y += 10;
+  doc.setFont(undefined, 'normal');
+
+  const tableHead = [
+    [
+      t('day').toUpperCase(),
+      t('slot').toUpperCase(),
+      t('subject').toUpperCase(),
+      t('teacher').toUpperCase(),
+      t('room').toUpperCase()
+    ]
+  ];
+
+  const ensureSpace = (need = 36) => {
+    if (y > pageH - need) {
+      doc.addPage();
+      y = margin;
     }
-  });
+  };
+
+  for (const block of blocks) {
+    ensureSpace(28);
+    doc.setFontSize(11);
+    doc.setTextColor(0, 140, 170);
+    doc.setFont(undefined, 'bold');
+    doc.text(`${t('faculty')}: ${block.facultyName}`, margin, y);
+    y += 8;
+    doc.setTextColor(0, 0, 0);
+    doc.setFont(undefined, 'normal');
+
+    for (const g of block.groups) {
+      ensureSpace(40);
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'bold');
+      doc.text(`${t('group')}: ${g.groupName}`, margin, y);
+      y += 5;
+      doc.setFont(undefined, 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(90, 90, 90);
+      doc.text(g.subTitle || '—', margin, y);
+      y += 7;
+      doc.setTextColor(0, 0, 0);
+
+      doc.autoTable({
+        startY: y,
+        head: tableHead,
+        body: g.displayRows.map((row) => [
+          row.dayDisplay,
+          row.slotLine,
+          row.subject,
+          row.teacher,
+          row.room
+        ]),
+        theme: 'plain',
+        headStyles: {
+          fillColor: [0, 168, 204],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'left',
+          valign: 'middle'
+        },
+        styles: {
+          fontSize: 9,
+          cellPadding: 3,
+          valign: 'top',
+          overflow: 'linebreak',
+          lineColor: [220, 220, 220],
+          lineWidth: 0.1
+        },
+        columnStyles: {
+          0: { cellWidth: 28 },
+          1: { cellWidth: 32 },
+          2: { cellWidth: 'auto' },
+          3: { cellWidth: 48 },
+          4: { cellWidth: 18, halign: 'center' }
+        },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: margin, right: margin }
+      });
+      y = doc.lastAutoTable.finalY + 12;
+    }
+  }
+
   doc.save(`JadvalPro_${s.id}.pdf`);
 };
 
