@@ -1920,6 +1920,16 @@ window.closeSidebar = () => {
 // ============================================
 // INIT
 // ============================================
+// Kirgandan keyin brauzer "Orqaga" login sahifasiga qaytmasin; chiqish faqat /api/logout.
+(function lockAppHistory() {
+  try {
+    history.pushState(null, '', location.href);
+    window.addEventListener('popstate', () => {
+      history.pushState(null, '', location.href);
+    });
+  } catch (_) { /* ignore */ }
+})();
+
 document.querySelectorAll('.nav-item').forEach(item => {
   item.addEventListener('click', () => {
     switchTab(item.dataset.tab);
