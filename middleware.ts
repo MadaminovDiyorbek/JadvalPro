@@ -2,8 +2,29 @@ import { jwtVerify } from 'jose';
 import { next } from '@vercel/functions';
 
 export const config = {
-  matcher: ['/((?!api/|login\\.html).*)'],
+  matcher: ['/api/logout', '/((?!api/|login\\.html).*)'],
 };
+
+function clearSessionCookie(request: Request): Response {
+  const secure = process.env.VERCEL === '1';
+  const clearCookie = [
+    'jadvalpro_session=',
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    'Max-Age=0',
+    secure ? 'Secure' : '',
+  ]
+    .filter(Boolean)
+    .join('; ');
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: new URL('/login.html', request.url).toString(),
+      'Set-Cookie': clearCookie,
+    },
+  });
+}
 
 function getCookie(request: Request, name: string): string | undefined {
   const raw = request.headers.get('cookie');
@@ -17,6 +38,11 @@ function getCookie(request: Request, name: string): string | undefined {
 
 export default async function middleware(request: Request) {
   const url = new URL(request.url);
+  const path = url.pathname.replace(/\/$/, '') || '/';
+  if (path === '/api/logout') {
+    return clearSessionCookie(request);
+  }
+
   const secret = process.env.AUTH_SECRET;
   if (!secret || secret.length < 16) {
     return Response.redirect(new URL('/login.html?err=config', request.url));
