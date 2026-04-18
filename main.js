@@ -1563,14 +1563,8 @@ window.renderPersonalSchedule = () => {
   const teacherData = sched.data.filter(d => d.teacher.includes(teacherName));
   if (teacherData.length === 0) { container.innerHTML = `<p style="color:var(--text-secondary);">${t('empty')}</p>`; return; }
 
-  const dayKeys = ['day_1', 'day_2', 'day_3', 'day_4', 'day_5', 'day_6'];
-  teacherData.sort((a, b) => {
-    const getIdx = (dayStr) => dayKeys.findIndex(k =>
-      translations.uz[k] === dayStr || translations.ru[k] === dayStr || translations.en[k] === dayStr
-    );
-    const diff = getIdx(a.day) - getIdx(b.day);
-    return diff !== 0 ? diff : a.slot.localeCompare(b.slot);
-  });
+  const sorted = sortLessonsForGroupExport(teacherData);
+  let lastDayUi = '';
 
   container.innerHTML = `
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-bottom:1.5rem;flex-wrap:wrap;">
@@ -1585,33 +1579,74 @@ window.renderPersonalSchedule = () => {
           </tr>
         </thead>
         <tbody>
-          ${teacherData.map(d => `
-            <tr>
-              <td style="font-weight:600;">${escapeHtml(d.day)}</td>
-              <td>${escapeHtml(d.slot)}<br/><small style="color:var(--text-secondary);">${d.time}</small></td>
+          ${sorted.map((d) => {
+            const showDay = d.day !== lastDayUi;
+            lastDayUi = d.day;
+            return `
+            <tr style="${showDay ? 'border-top: 2px solid var(--border-color);' : ''}">
+              <td style="font-weight:600; color: ${showDay ? 'var(--text-primary)' : 'transparent'}; user-select:none;">${showDay ? escapeHtml(d.day) : ''}</td>
+              <td>${escapeHtml(d.slot)}<br/><small style="color:var(--text-secondary);">${escapeHtml(d.time)}</small></td>
               <td>${escapeHtml(d.subject)}</td>
               <td>${escapeHtml(d.group)}</td>
               <td>${escapeHtml(d.room)}</td>
-            </tr>`).join('')}
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>
     </div>`;
 };
 
+/** O'qituvchi shaxsiy jadval — veb ko'rinishidagi kabi qatorlar */
+function buildTeacherPersonalExportRows(lessons) {
+  const sorted = sortLessonsForGroupExport(lessons);
+  let lastDay = '';
+  return sorted.map((d) => {
+    const showDay = d.day !== lastDay;
+    lastDay = d.day;
+    return {
+      dayDisplay: showDay ? d.day : '',
+      slotLine: `${d.slot}\n${d.time}`,
+      subject: d.subject,
+      group: d.group,
+      room: d.room
+    };
+  });
+}
+
 window.exportTeacherSchedule = (format) => {
-  const schedId    = document.getElementById('pers-sched').value;
+  const schedId = document.getElementById('pers-sched').value;
   const teacherName = document.getElementById('pers-teacher').value;
-  const sched      = state.schedules.find(s => s.id == schedId);
+  const sched = state.schedules.find((s) => s.id == schedId);
   if (!sched) return;
 
-  const teacherData = sched.data.filter(d => d.teacher.includes(teacherName));
-  const filename    = `${teacherName}_Jadval`.replace(/\s+/g, '_');
+  const teacherData = sched.data.filter((d) => d.teacher.includes(teacherName));
+  if (!teacherData.length) return;
+
+  const displayRows = buildTeacherPersonalExportRows(teacherData);
+  const filename = `${teacherName}_Jadval`.replace(/\s+/g, '_');
 
   if (format === 'excel') {
-    const ws = XLSX.utils.json_to_sheet(teacherData.map(d => ({
-      [t('day')]: d.day, [t('slot')]: d.slot, [t('time')]: d.time,
-      [t('subject')]: d.subject, [t('group')]: d.group, [t('room')]: d.room
-    })));
+    const aoa = [];
+    const merges = [];
+    let r = 0;
+    const mergeRow = (text) => {
+      merges.push({ s: { r, c: 0 }, e: { r, c: 4 } });
+      aoa.push([text]);
+      r++;
+    };
+
+    mergeRow(`${state.university} — ${teacherName} — ${t('personal_schedules')}`);
+    mergeRow(`${t('schedules')}: ${sched.date}`);
+    aoa.push([t('day'), t('slot'), t('subject'), t('group'), t('room')]);
+    r++;
+    for (const row of displayRows) {
+      aoa.push([row.dayDisplay, row.slotLine, row.subject, row.group, row.room]);
+      r++;
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!merges'] = merges;
+    ws['!cols'] = [{ wch: 14 }, { wch: 18 }, { wch: 36 }, { wch: 18 }, { wch: 12 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Jadval');
     const base64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
@@ -1619,14 +1654,63 @@ window.exportTeacherSchedule = (format) => {
   } else {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'landscape' });
-    doc.setFontSize(14);
-    doc.text(`${teacherName} - ${t('personal_schedules')}`, 14, 15);
+    const margin = 14;
+    let y = 12;
+
+    doc.setFontSize(13);
+    doc.setFont(undefined, 'bold');
+    doc.text(`${state.university}`, margin, y);
+    y += 7;
+    doc.setFontSize(11);
+    doc.text(`${teacherName} — ${t('personal_schedules')}`, margin, y);
+    y += 6;
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(90, 90, 90);
+    doc.text(`${t('schedules')}: ${sched.date}`, margin, y);
+    y += 10;
+    doc.setTextColor(0, 0, 0);
+
     doc.autoTable({
-      startY: 22,
-      head: [[t('day'), t('slot'), t('time'), t('subject'), t('group'), t('room')]],
-      body: teacherData.map(d => [d.day, d.slot, d.time, d.subject, d.group, d.room]),
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: [0, 180, 216] }
+      startY: y,
+      head: [
+        [
+          t('day').toUpperCase(),
+          t('slot').toUpperCase(),
+          t('subject').toUpperCase(),
+          t('group').toUpperCase(),
+          t('room').toUpperCase()
+        ]
+      ],
+      body: displayRows.map((row) => [
+        row.dayDisplay,
+        row.slotLine,
+        row.subject,
+        row.group,
+        row.room
+      ]),
+      theme: 'plain',
+      headStyles: {
+        fillColor: [0, 168, 204],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        halign: 'left'
+      },
+      styles: {
+        fontSize: 9,
+        cellPadding: 3,
+        valign: 'top',
+        overflow: 'linebreak'
+      },
+      columnStyles: {
+        0: { cellWidth: 28 },
+        1: { cellWidth: 32 },
+        2: { cellWidth: 'auto' },
+        3: { cellWidth: 36 },
+        4: { cellWidth: 20, halign: 'center' }
+      },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      margin: { left: margin, right: margin }
     });
     doc.save(`${filename}.pdf`);
   }
