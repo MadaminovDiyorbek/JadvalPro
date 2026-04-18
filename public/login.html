@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JadvalPro — kirish</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #312e81 100%);
+      color: #e2e8f0;
+    }
+    .card {
+      width: 100%; max-width: 400px; padding: 2rem 2rem 1.75rem;
+      background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.45);
+    }
+    h1 { margin: 0 0 0.25rem; font-size: 1.5rem; font-weight: 700; }
+    .sub { margin: 0 0 1.5rem; font-size: 0.875rem; color: #94a3b8; }
+    label { display: block; font-size: 0.8rem; color: #94a3b8; margin-bottom: 0.35rem; }
+    input {
+      width: 100%; padding: 0.65rem 0.75rem; margin-bottom: 1rem;
+      border: 1px solid #475569; border-radius: 8px; background: #0f172a; color: #f1f5f9;
+      font-size: 1rem;
+    }
+    input:focus { outline: 2px solid #6366f1; border-color: #6366f1; }
+    button {
+      width: 100%; padding: 0.75rem; margin-top: 0.25rem;
+      border: none; border-radius: 8px; background: linear-gradient(90deg, #4f46e5, #7c3aed);
+      color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .err {
+      display: none; margin-bottom: 1rem; padding: 0.65rem 0.75rem;
+      border-radius: 8px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #fecaca; font-size: 0.875rem;
+    }
+    .err.show { display: block; }
+    .logo { width: 48px; height: 48px; border-radius: 12px; background: #4f46e5; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.25rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">J</div>
+    <h1>JadvalPro</h1>
+    <p class="sub">Tizimga kirish (faqat ruxsat berilgan foydalanuvchilar)</p>
+    <div id="msg" class="err" role="alert"></div>
+    <form id="f">
+      <label for="u">Login</label>
+      <input id="u" name="username" autocomplete="username" required />
+      <label for="p">Parol</label>
+      <input id="p" name="password" type="password" autocomplete="current-password" required />
+      <button type="submit" id="btn">Kirish</button>
+    </form>
+  </div>
+  <script>
+    (function () {
+      var msg = document.getElementById('msg');
+      var params = new URLSearchParams(location.search);
+      var err = params.get('err');
+      if (err === 'config') {
+        msg.textContent = 'Server sozlanmagan: AUTH_SECRET, AUTH_USER, AUTH_PASSWORD (Vercel Environment Variables).';
+        msg.classList.add('show');
+      } else if (err === 'session') {
+        msg.textContent = 'Sessiya tugagan yoki yaroqsiz. Qayta kiring.';
+        msg.classList.add('show');
+      }
+      function safeNext(raw) {
+        if (!raw || typeof raw !== 'string') return '/';
+        try {
+          var d = decodeURIComponent(raw);
+          if (d.charAt(0) === '/' && d.charAt(1) !== '/') return d;
+        } catch (e) {}
+        return '/';
+      }
+      document.getElementById('f').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        msg.classList.remove('show');
+        var btn = document.getElementById('btn');
+        btn.disabled = true;
+        try {
+          var apiUrl = new URL('/api/auth', window.location.origin).toString();
+          var res = await fetch(apiUrl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: document.getElementById('u').value.trim(),
+              password: document.getElementById('p').value,
+            }),
+          });
+          if (res.status === 404) {
+            msg.textContent = 'Bu domen (/api/auth topilmadi) — ehtimol eski sayt. Vercel’da «jadval-pro» domenini kirish qo‘yilgan loyihaga ulang yoki yangi production URL ni oching.';
+            msg.classList.add('show');
+            return;
+          }
+          var data = await res.json().catch(function () { return {}; });
+          if (!res.ok) {
+            msg.textContent = data.error === 'credentials'
+              ? 'Login yoki parol noto‘g‘ri.'
+              : (data.error === 'config' ? 'Server sozlanmagan.' : ('So‘rov xatosi (HTTP ' + res.status + '). Qayta urinib ko‘ring.'));
+            msg.classList.add('show');
+            return;
+          }
+          location.replace(safeNext(params.get('next')));
+        } catch (x) {
+          msg.textContent = 'Brauzer so‘rovni yubora olmadi (tarmoq, HTTPS yoki bloklovchi). Boshqa brauzer yoki tarmoqni sinab ko‘ring. Domen «jadval-pro» bo‘lsa — u API siz eski deploy bo‘lishi mumkin.';
+          msg.classList.add('show');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
