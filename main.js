@@ -95,7 +95,8 @@ const translations = {
     conflict_detected: "Ziddiyat aniqlandi! Ko'chirish bekor qilindi.",
     room_type_mismatch: "Xona turi fan turiga mos emas",
     gen_fallback_subjects: "Ayrim guruhlar uchun fakultet bo‘yicha fan topilmadi — barcha fanlar qo‘llanildi.",
-    sched_unknown_faculty: "Boshqa / aniqlanmagan guruhlar"
+    sched_unknown_faculty: "Boshqa / aniqlanmagan guruhlar",
+    logout: "Chiqish"
   },
   ru: {
     dashboard: "Дашборд",
@@ -188,7 +189,8 @@ const translations = {
     conflict_detected: "Обнаружен конфликт! Перемещение отменено.",
     room_type_mismatch: "Тип аудитории не соответствует типу занятия",
     gen_fallback_subjects: "Для части групп не найдены предметы факультета — использованы все предметы.",
-    sched_unknown_faculty: "Прочие / неизвестные группы"
+    sched_unknown_faculty: "Прочие / неизвестные группы",
+    logout: "Выход"
   },
   en: {
     dashboard: "Dashboard",
@@ -281,7 +283,8 @@ const translations = {
     conflict_detected: "Conflict detected! Move cancelled.",
     room_type_mismatch: "Room type does not match lesson type",
     gen_fallback_subjects: "No faculty-matched subjects for some groups — all subjects were used.",
-    sched_unknown_faculty: "Other / unidentified groups"
+    sched_unknown_faculty: "Other / unidentified groups",
+    logout: "Log out"
   }
 };
 
@@ -562,6 +565,8 @@ function translateUI() {
   if (uniEl) uniEl.textContent = state.university;
   const activeTab = document.querySelector('.nav-item.active');
   if (activeTab && PAGE_TITLE) PAGE_TITLE.textContent = t(activeTab.dataset.tab);
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) logoutBtn.textContent = t('logout');
 }
 
 // ============================================
